@@ -208,3 +208,116 @@ impl Config {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+
+        assert_eq!(config.default_provider, "ollama");
+        assert!(config.providers.contains_key("ollama"));
+        assert!(config.providers.contains_key("openai"));
+        assert!(config.providers.contains_key("anthropic"));
+
+        // Ollama should be enabled by default
+        assert!(config.providers.get("ollama").unwrap().enabled);
+
+        // OpenAI and Anthropic should be disabled by default
+        assert!(!config.providers.get("openai").unwrap().enabled);
+        assert!(!config.providers.get("anthropic").unwrap().enabled);
+    }
+
+    #[test]
+    fn test_worker_names() {
+        let config = Config::default();
+
+        assert_eq!(config.ui.worker_names.len(), 5);
+        assert!(config.ui.worker_names.contains(&"Pixel".to_string()));
+        assert!(config.ui.worker_names.contains(&"Byte".to_string()));
+        assert!(config.ui.worker_names.contains(&"Nova".to_string()));
+        assert!(config.ui.worker_names.contains(&"Chip".to_string()));
+        assert!(config.ui.worker_names.contains(&"Luna".to_string()));
+    }
+
+    #[test]
+    fn test_council_config() {
+        let config = Config::default();
+
+        assert!(!config.council.enabled);
+        assert_eq!(config.council.rounds, 2);
+        assert!((config.council.consensus_threshold - 0.7).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_resolve_api_key_empty() {
+        let config = Config::default();
+
+        // Ollama has empty API key
+        assert!(config.resolve_api_key("ollama").is_none());
+    }
+
+    #[test]
+    fn test_resolve_api_key_env_var() {
+        let config = Config::default();
+
+        // Set test env var
+        std::env::set_var("TEST_API_KEY", "test_value");
+
+        let mut test_config = config.clone();
+        test_config.providers.get_mut("ollama").unwrap().api_key = "$TEST_API_KEY".to_string();
+
+        assert_eq!(
+            test_config.resolve_api_key("ollama"),
+            Some("test_value".to_string())
+        );
+
+        std::env::remove_var("TEST_API_KEY");
+    }
+
+    #[test]
+    fn test_resolve_api_key_direct() {
+        let mut config = Config::default();
+
+        config.providers.get_mut("ollama").unwrap().api_key = "direct_key".to_string();
+
+        assert_eq!(
+            config.resolve_api_key("ollama"),
+            Some("direct_key".to_string())
+        );
+    }
+
+    #[test]
+    fn test_output_config() {
+        let config = Config::default();
+
+        assert!(config.output.auto_save);
+        assert_eq!(config.output.format, "markdown");
+    }
+
+    #[test]
+    fn test_provider_config() {
+        let config = Config::default();
+        let ollama = config.providers.get("ollama").unwrap();
+
+        assert_eq!(ollama.endpoint, "http://localhost:11434");
+        assert_eq!(ollama.model, "llama3.2");
+        assert_eq!(ollama.max_tokens, Some(4096));
+        assert!((ollama.temperature.unwrap() - 0.7).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_config_serialization() {
+        let config = Config::default();
+        let toml_str = toml::to_string(&config).unwrap();
+
+        // Should contain key sections
+        assert!(toml_str.contains("[providers"));
+        assert!(toml_str.contains("default_provider"));
+        assert!(toml_str.contains("[council]"));
+        assert!(toml_str.contains("[ui]"));
+        assert!(toml_str.contains("[output]"));
+    }
+}
