@@ -94,101 +94,112 @@ pub struct SupportTeam {
     next_task_id: usize,
 }
 
+/// Helper to create team members and providers from available provider list
+/// Extracted to avoid code duplication between sync and async constructors
+fn create_team_members_and_providers(
+    available: &[String],
+    config: &Config,
+) -> (Vec<TeamMember>, std::collections::HashMap<String, Box<dyn LlmProvider>>) {
+    let mut members = Vec::new();
+    let mut providers: std::collections::HashMap<String, Box<dyn LlmProvider>> =
+        std::collections::HashMap::new();
+
+    // Create team members based on available providers
+    // Priority: Gemini (fast) > Codex > Claude > Ollama
+
+    if available.contains(&"gemini-cli".to_string()) {
+        members.push(TeamMember {
+            name: "Gem".to_string(),
+            role: "Researcher".to_string(),
+            specialty: TaskType::Research,
+            provider_type: "gemini-cli".to_string(),
+            available: true,
+        });
+        members.push(TeamMember {
+            name: "Iris".to_string(),
+            role: "Writer".to_string(),
+            specialty: TaskType::Write,
+            provider_type: "gemini-cli".to_string(),
+            available: true,
+        });
+        members.push(TeamMember {
+            name: "Nova".to_string(),
+            role: "Explainer".to_string(),
+            specialty: TaskType::Explain,
+            provider_type: "gemini-cli".to_string(),
+            available: true,
+        });
+        providers.insert("gemini-cli".to_string(), Box::new(GeminiCliProvider::new()));
+    }
+
+    if available.contains(&"codex-cli".to_string()) {
+        members.push(TeamMember {
+            name: "Dev".to_string(),
+            role: "Analyst".to_string(),
+            specialty: TaskType::Analyze,
+            provider_type: "codex-cli".to_string(),
+            available: true,
+        });
+        members.push(TeamMember {
+            name: "Cody".to_string(),
+            role: "Problem Solver".to_string(),
+            specialty: TaskType::Solve,
+            provider_type: "codex-cli".to_string(),
+            available: true,
+        });
+        providers.insert("codex-cli".to_string(), Box::new(CodexCliProvider::new()));
+    }
+
+    if available.contains(&"claude-cli".to_string()) {
+        members.push(TeamMember {
+            name: "Alex".to_string(),
+            role: "Editor".to_string(),
+            specialty: TaskType::Edit,
+            provider_type: "claude-cli".to_string(),
+            available: true,
+        });
+        members.push(TeamMember {
+            name: "Sam".to_string(),
+            role: "Creative".to_string(),
+            specialty: TaskType::Create,
+            provider_type: "claude-cli".to_string(),
+            available: true,
+        });
+        providers.insert("claude-cli".to_string(), Box::new(ClaudeCliProvider::new()));
+    }
+
+    if available.contains(&"ollama".to_string()) {
+        if let Some(ollama_config) = config.providers.get("ollama") {
+            members.push(TeamMember {
+                name: "Local".to_string(),
+                role: "General Assistant".to_string(),
+                specialty: TaskType::General,
+                provider_type: "ollama".to_string(),
+                available: true,
+            });
+            providers.insert("ollama".to_string(), Box::new(OllamaProvider::new(ollama_config.clone())));
+        }
+    }
+
+    // If no providers available, create placeholder member
+    if members.is_empty() {
+        members.push(TeamMember {
+            name: "Team".to_string(),
+            role: "Assistant".to_string(),
+            specialty: TaskType::General,
+            provider_type: "none".to_string(),
+            available: false,
+        });
+    }
+
+    (members, providers)
+}
+
 impl SupportTeam {
     /// Create a new support team based on available providers
     pub fn new(config: &Config) -> Self {
         let available = detect_available_providers();
-        let mut members = Vec::new();
-        let mut providers: std::collections::HashMap<String, Box<dyn LlmProvider>> =
-            std::collections::HashMap::new();
-
-        // Create team members based on available providers
-        // Priority: Gemini (fast) > Codex > Claude > Ollama
-
-        if available.contains(&"gemini-cli".to_string()) {
-            members.push(TeamMember {
-                name: "Gem".to_string(),
-                role: "Researcher".to_string(),
-                specialty: TaskType::Research,
-                provider_type: "gemini-cli".to_string(),
-                available: true,
-            });
-            members.push(TeamMember {
-                name: "Iris".to_string(),
-                role: "Writer".to_string(),
-                specialty: TaskType::Write,
-                provider_type: "gemini-cli".to_string(),
-                available: true,
-            });
-            members.push(TeamMember {
-                name: "Nova".to_string(),
-                role: "Explainer".to_string(),
-                specialty: TaskType::Explain,
-                provider_type: "gemini-cli".to_string(),
-                available: true,
-            });
-            providers.insert("gemini-cli".to_string(), Box::new(GeminiCliProvider::new()));
-        }
-
-        if available.contains(&"codex-cli".to_string()) {
-            members.push(TeamMember {
-                name: "Dev".to_string(),
-                role: "Analyst".to_string(),
-                specialty: TaskType::Analyze,
-                provider_type: "codex-cli".to_string(),
-                available: true,
-            });
-            members.push(TeamMember {
-                name: "Cody".to_string(),
-                role: "Problem Solver".to_string(),
-                specialty: TaskType::Solve,
-                provider_type: "codex-cli".to_string(),
-                available: true,
-            });
-            providers.insert("codex-cli".to_string(), Box::new(CodexCliProvider::new()));
-        }
-
-        if available.contains(&"claude-cli".to_string()) {
-            members.push(TeamMember {
-                name: "Alex".to_string(),
-                role: "Editor".to_string(),
-                specialty: TaskType::Edit,
-                provider_type: "claude-cli".to_string(),
-                available: true,
-            });
-            members.push(TeamMember {
-                name: "Sam".to_string(),
-                role: "Creative".to_string(),
-                specialty: TaskType::Create,
-                provider_type: "claude-cli".to_string(),
-                available: true,
-            });
-            providers.insert("claude-cli".to_string(), Box::new(ClaudeCliProvider::new()));
-        }
-
-        if available.contains(&"ollama".to_string()) {
-            if let Some(ollama_config) = config.providers.get("ollama") {
-                members.push(TeamMember {
-                    name: "Local".to_string(),
-                    role: "General Assistant".to_string(),
-                    specialty: TaskType::General,
-                    provider_type: "ollama".to_string(),
-                    available: true,
-                });
-                providers.insert("ollama".to_string(), Box::new(OllamaProvider::new(ollama_config.clone())));
-            }
-        }
-
-        // If no providers available, create placeholder members
-        if members.is_empty() {
-            members.push(TeamMember {
-                name: "Team".to_string(),
-                role: "Assistant".to_string(),
-                specialty: TaskType::General,
-                provider_type: "none".to_string(),
-                available: false,
-            });
-        }
+        let (members, providers) = create_team_members_and_providers(&available, config);
 
         Self {
             members,
@@ -201,95 +212,7 @@ impl SupportTeam {
     /// Create a new support team with parallel provider detection (faster startup)
     pub async fn new_async(config: &Config) -> Self {
         let available = detect_available_providers_async().await;
-        let mut members = Vec::new();
-        let mut providers: std::collections::HashMap<String, Box<dyn LlmProvider>> =
-            std::collections::HashMap::new();
-
-        // Create team members based on available providers (same logic as sync version)
-        if available.contains(&"gemini-cli".to_string()) {
-            members.push(TeamMember {
-                name: "Gem".to_string(),
-                role: "Researcher".to_string(),
-                specialty: TaskType::Research,
-                provider_type: "gemini-cli".to_string(),
-                available: true,
-            });
-            members.push(TeamMember {
-                name: "Iris".to_string(),
-                role: "Writer".to_string(),
-                specialty: TaskType::Write,
-                provider_type: "gemini-cli".to_string(),
-                available: true,
-            });
-            members.push(TeamMember {
-                name: "Nova".to_string(),
-                role: "Explainer".to_string(),
-                specialty: TaskType::Explain,
-                provider_type: "gemini-cli".to_string(),
-                available: true,
-            });
-            providers.insert("gemini-cli".to_string(), Box::new(GeminiCliProvider::new()));
-        }
-
-        if available.contains(&"codex-cli".to_string()) {
-            members.push(TeamMember {
-                name: "Dev".to_string(),
-                role: "Analyst".to_string(),
-                specialty: TaskType::Analyze,
-                provider_type: "codex-cli".to_string(),
-                available: true,
-            });
-            members.push(TeamMember {
-                name: "Cody".to_string(),
-                role: "Problem Solver".to_string(),
-                specialty: TaskType::Solve,
-                provider_type: "codex-cli".to_string(),
-                available: true,
-            });
-            providers.insert("codex-cli".to_string(), Box::new(CodexCliProvider::new()));
-        }
-
-        if available.contains(&"claude-cli".to_string()) {
-            members.push(TeamMember {
-                name: "Alex".to_string(),
-                role: "Editor".to_string(),
-                specialty: TaskType::Edit,
-                provider_type: "claude-cli".to_string(),
-                available: true,
-            });
-            members.push(TeamMember {
-                name: "Sam".to_string(),
-                role: "Creative".to_string(),
-                specialty: TaskType::Create,
-                provider_type: "claude-cli".to_string(),
-                available: true,
-            });
-            providers.insert("claude-cli".to_string(), Box::new(ClaudeCliProvider::new()));
-        }
-
-        if available.contains(&"ollama".to_string()) {
-            if let Some(ollama_config) = config.providers.get("ollama") {
-                members.push(TeamMember {
-                    name: "Local".to_string(),
-                    role: "General Assistant".to_string(),
-                    specialty: TaskType::General,
-                    provider_type: "ollama".to_string(),
-                    available: true,
-                });
-                providers.insert("ollama".to_string(), Box::new(OllamaProvider::new(ollama_config.clone())));
-            }
-        }
-
-        // Placeholder if no providers
-        if members.is_empty() {
-            members.push(TeamMember {
-                name: "Team".to_string(),
-                role: "Assistant".to_string(),
-                specialty: TaskType::General,
-                provider_type: "none".to_string(),
-                available: false,
-            });
-        }
+        let (members, providers) = create_team_members_and_providers(&available, config);
 
         Self {
             members,

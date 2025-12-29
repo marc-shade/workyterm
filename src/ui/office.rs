@@ -152,8 +152,11 @@ fn get_worker_color(worker: &Worker) -> Color {
 
 fn draw_thought_bubble(frame: &mut Frame, message: &str, x: u16, y: u16) {
     let max_width = 20;
-    let truncated: String = if message.len() > max_width {
-        format!("{}...", &message[..max_width - 3])
+    let truncated: String = if message.chars().count() > max_width {
+        // UTF-8 safe truncation using char boundaries
+        let truncate_at = max_width - 3;
+        let safe_slice: String = message.chars().take(truncate_at).collect();
+        format!("{}...", safe_slice)
     } else {
         message.to_string()
     };

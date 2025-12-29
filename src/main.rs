@@ -12,6 +12,7 @@ use anyhow::Result;
 use clap::Parser;
 use colored::Colorize;
 use std::io::{self, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use cache::ResponseCache;
@@ -106,18 +107,15 @@ impl Session {
     }
 }
 
-/// Global verbose flag
-static mut VERBOSE: bool = false;
+/// Global verbose flag (thread-safe)
+static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 /// Log a debug message if verbose mode is enabled
 #[macro_export]
 macro_rules! debug_log {
     ($($arg:tt)*) => {
-        #[allow(unused_unsafe)]
-        unsafe {
-            if VERBOSE {
-                eprintln!("{} {}", "[DEBUG]".dimmed(), format!($($arg)*).dimmed());
-            }
+        if VERBOSE.load(Ordering::Relaxed) {
+            eprintln!("{} {}", "[DEBUG]".dimmed(), format!($($arg)*).dimmed());
         }
     };
 }
@@ -166,8 +164,8 @@ fn hint_to_task_type(hint: &str) -> team::TaskType {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Set verbose flag
-    unsafe { VERBOSE = args.verbose; }
+    // Set verbose flag (thread-safe)
+    VERBOSE.store(args.verbose, Ordering::Relaxed);
 
     debug_log!("WorkyTerm starting...");
 
@@ -362,7 +360,17 @@ async fn handle_slash_command(cmd: &str, team: &SupportTeam, session: &mut Sessi
 }
 
 /// Handle shell commands (! prefix)
+///
+/// SECURITY NOTE: This executes arbitrary shell commands. Users should be aware
+/// that commands prefixed with '!' are passed directly to the system shell.
+/// This is an intentional feature for power users, similar to vim's :! command.
 async fn handle_shell_command(cmd: &str) {
+    // Security warning for potentially dangerous commands
+    let dangerous_patterns = ["rm ", "sudo ", "chmod ", "chown ", "> /", "| sh", "| bash"];
+    if dangerous_patterns.iter().any(|p| cmd.contains(p)) {
+        println!("{} This command may modify system files. Proceeding...", "⚠".yellow());
+    }
+
     println!("{} {}", "$".bright_black(), cmd.dimmed());
 
     let output = tokio::process::Command::new("sh")
@@ -386,19 +394,53 @@ async fn handle_shell_command(cmd: &str) {
     }
 }
 
-/// Process @file references in input
+/// Maximum file size for @path references (1MB)
+const MAX_FILE_REF_SIZE: u64 = 1_048_576;
+
+/// Cached regex for file reference patterns
+static FILE_REF_REGEX: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"@([\w./\-]+)").unwrap());
+
+/// Process @file references in input with security validation
 fn process_file_refs(input: &str) -> String {
     let mut result = input.to_string();
 
-    // Find @path patterns
-    let re = regex::Regex::new(r"@([\w./\-]+)").ok();
-    if let Some(re) = re {
-        for cap in re.captures_iter(input) {
-            let path = &cap[1];
-            if let Ok(content) = std::fs::read_to_string(path) {
-                let replacement = format!("\n--- {} ---\n{}\n---", path, content);
-                result = result.replace(&format!("@{}", path), &replacement);
+    for cap in FILE_REF_REGEX.captures_iter(input) {
+        let path_str = &cap[1];
+        let path = std::path::Path::new(path_str);
+
+        // Security: Reject absolute paths
+        if path.is_absolute() {
+            debug_log!("Rejected absolute path: {}", path_str);
+            continue;
+        }
+
+        // Security: Reject path traversal attempts
+        if path_str.contains("..") {
+            debug_log!("Rejected path traversal: {}", path_str);
+            continue;
+        }
+
+        // Security: Check file size before reading
+        match std::fs::metadata(path) {
+            Ok(metadata) => {
+                if metadata.len() > MAX_FILE_REF_SIZE {
+                    debug_log!(
+                        "Rejected oversized file: {} ({} bytes, max {})",
+                        path_str,
+                        metadata.len(),
+                        MAX_FILE_REF_SIZE
+                    );
+                    continue;
+                }
             }
+            Err(_) => continue, // File doesn't exist or not accessible
+        }
+
+        // Safe to read
+        if let Ok(content) = std::fs::read_to_string(path) {
+            let replacement = format!("\n--- {} ---\n{}\n---", path_str, content);
+            result = result.replace(&format!("@{}", path_str), &replacement);
         }
     }
 

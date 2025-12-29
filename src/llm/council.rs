@@ -179,11 +179,15 @@ impl Council {
     }
 }
 
-/// Truncate a response to a maximum length
+/// Truncate a response to a maximum length (UTF-8 safe)
 fn truncate_response(response: &str, max_len: usize) -> &str {
     if response.len() <= max_len {
         response
     } else {
-        &response[..max_len]
+        // Find the last valid UTF-8 character boundary before max_len
+        match response.char_indices().take_while(|(i, _)| *i < max_len).last() {
+            Some((i, c)) => &response[..i + c.len_utf8()],
+            None => "",
+        }
     }
 }
