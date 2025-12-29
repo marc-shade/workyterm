@@ -54,6 +54,9 @@ arboard = "3.4"
 # Async traits
 async-trait = "0.1"
 
+# TTY detection
+atty = "0.2"
+
 [dev-dependencies]
 pretty_assertions = "1.4"
 

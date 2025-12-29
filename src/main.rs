@@ -55,6 +55,12 @@ async fn main() -> Result<()> {
         .init();
 
     // Setup terminal
+    if !atty::is(atty::Stream::Stdout) {
+        eprintln!("Error: WorkyTerm requires an interactive terminal.");
+        eprintln!("Please run this command directly in your terminal (iTerm, Terminal.app, etc.)");
+        std::process::exit(1);
+    }
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
