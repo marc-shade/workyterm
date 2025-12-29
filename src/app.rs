@@ -1,18 +1,16 @@
-//! Application state management
+//! Application state - Claude Code style assistant
 
 use anyhow::Result;
 use std::path::PathBuf;
 
 use crate::config::Config;
-use crate::llm::{auto_select_provider, detect_available_providers, LlmProvider};
-use crate::workers::{Office, WorkerState};
+use crate::team::{SupportTeam, Task, TaskProgress};
 
 /// Focus areas in the UI
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Input,
     Output,
-    Workers,
 }
 
 /// Message role in conversation
@@ -22,6 +20,8 @@ pub enum MessageRole {
     Assistant,
     System,
     Error,
+    Tool,      // For showing tool/action usage
+    Thinking,  // For showing reasoning
 }
 
 /// A message in the conversation
@@ -32,22 +32,37 @@ pub struct Message {
     pub provider: Option<String>,
 }
 
-/// Application state
+/// Todo item for task tracking
+#[derive(Debug, Clone)]
+pub struct TodoItem {
+    pub content: String,
+    pub status: TodoStatus,
+    pub active_form: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Completed,
+}
+
+/// Application state - Claude Code style
 pub struct App {
     /// Configuration
     pub config: Config,
 
-    /// Current task input
+    /// Current input
     pub input: String,
 
     /// Cursor position in input
     pub cursor: usize,
 
-    /// Generated output (legacy - kept for compatibility)
-    pub output: String,
-
     /// Conversation messages
     pub messages: Vec<Message>,
+
+    /// Todo list (visible to user)
+    pub todos: Vec<TodoItem>,
 
     /// Output scroll position
     pub output_scroll: u16,
@@ -55,85 +70,59 @@ pub struct App {
     /// Current focus
     pub focus: Focus,
 
-    /// Virtual office with workers (optional/legacy)
-    pub office: Office,
+    /// Support team for handling requests
+    pub team: SupportTeam,
 
-    /// Current LLM provider
-    provider: Option<Box<dyn LlmProvider>>,
+    /// Current status
+    pub status: AppStatus,
 
-    /// Provider name for display
-    pub provider_name: Option<String>,
+    /// Working directory
+    pub cwd: PathBuf,
 
-    /// Available providers detected
-    pub available_providers: Vec<String>,
-
-    /// Current task status
-    pub status: TaskStatus,
-
-    /// Output file path
-    pub output_path: Option<PathBuf>,
-
-    /// Animation tick counter
-    pub tick: u64,
-
-    /// Messages/thoughts from workers (legacy)
-    pub worker_messages: Vec<WorkerMessage>,
+    /// Session stats
+    pub turns: usize,
+    pub tokens_used: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskStatus {
+pub enum AppStatus {
     Idle,
     Working,
-    Deliberating,
     Complete,
     Error,
-}
-
-#[derive(Debug, Clone)]
-pub struct WorkerMessage {
-    pub worker_id: usize,
-    pub message: String,
-    pub timestamp: u64,
 }
 
 impl App {
     pub fn new(
         initial_task: Option<String>,
-        output_path: Option<String>,
+        _output_path: Option<String>,
         config_path: Option<String>,
     ) -> Result<Self> {
         let config = Config::load(config_path.as_deref())?;
-        let office = Office::new(&config);
-
-        // Detect available providers
-        let available_providers = detect_available_providers();
-
-        // Auto-select best provider
-        let (provider, provider_name) = match auto_select_provider(&config) {
-            Ok(p) => {
-                let name = p.name().to_string();
-                (Some(p), Some(name))
-            }
-            Err(_) => (None, None),
-        };
+        let team = SupportTeam::new(&config);
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
         let mut app = Self {
             config,
             input: String::new(),
             cursor: 0,
-            output: String::new(),
             messages: Vec::new(),
+            todos: Vec::new(),
             output_scroll: 0,
             focus: Focus::Input,
-            office,
-            provider,
-            provider_name,
-            available_providers,
-            status: TaskStatus::Idle,
-            output_path: output_path.map(PathBuf::from),
-            tick: 0,
-            worker_messages: Vec::new(),
+            team,
+            status: AppStatus::Idle,
+            cwd,
+            turns: 0,
+            tokens_used: 0,
         };
+
+        // Welcome message
+        if !app.team.is_available() {
+            app.add_message(MessageRole::Error,
+                "No AI providers available. Please install claude, codex, or gemini CLI, or start ollama.".to_string(),
+                None);
+        }
 
         // If task provided via CLI, set it
         if let Some(task) = initial_task {
@@ -153,113 +142,103 @@ impl App {
         });
     }
 
-    /// Submit current task for processing
+    /// Add a todo item
+    pub fn add_todo(&mut self, content: &str, active_form: &str) {
+        self.todos.push(TodoItem {
+            content: content.to_string(),
+            status: TodoStatus::Pending,
+            active_form: active_form.to_string(),
+        });
+    }
+
+    /// Update todo status
+    pub fn update_todo(&mut self, index: usize, status: TodoStatus) {
+        if let Some(todo) = self.todos.get_mut(index) {
+            todo.status = status;
+        }
+    }
+
+    /// Clear completed todos
+    pub fn clear_completed_todos(&mut self) {
+        self.todos.retain(|t| t.status != TodoStatus::Completed);
+    }
+
+    /// Submit current input for processing
     pub async fn submit_task(&mut self) -> Result<()> {
-        if self.input.is_empty() || self.status == TaskStatus::Working {
+        if self.input.is_empty() || self.status == AppStatus::Working {
             return Ok(());
         }
 
-        let task = self.input.clone();
+        let request = self.input.clone();
         self.input.clear();
         self.cursor = 0;
+        self.turns += 1;
 
         // Add user message
-        self.add_message(MessageRole::User, task.clone(), None);
+        self.add_message(MessageRole::User, request.clone(), None);
 
-        self.status = TaskStatus::Working;
-        self.output.clear();
-        self.worker_messages.clear();
+        self.status = AppStatus::Working;
 
-        // Wake up workers (legacy animation)
-        for worker in &mut self.office.workers {
-            worker.state = WorkerState::Thinking;
-        }
+        // Show thinking
+        self.add_message(MessageRole::Thinking, "Analyzing your request...".to_string(), None);
 
-        // Process with provider
-        if let Some(provider) = &self.provider {
-            match provider.generate(&task).await {
-                Ok(response) => {
-                    self.output = response.clone();
-                    self.add_message(
-                        MessageRole::Assistant,
-                        response,
-                        Some(provider.name().to_string()),
-                    );
-                    self.status = TaskStatus::Complete;
+        // Process with support team
+        match self.team.handle_request(&request).await {
+            Ok((response, tasks)) => {
+                // Remove thinking message
+                self.messages.retain(|m| m.role != MessageRole::Thinking);
 
-                    // Workers celebrate
-                    for worker in &mut self.office.workers {
-                        worker.state = WorkerState::Celebrating;
-                    }
+                // Update todos from tasks
+                self.update_todos_from_tasks(&tasks);
 
-                    // Auto-save if configured
-                    if self.config.output.auto_save {
-                        if let Some(path) = &self.output_path {
-                            std::fs::write(path, &self.output)?;
-                        }
-                    }
-                }
-                Err(e) => {
-                    let error_msg = format!("{}", e);
-                    self.output = error_msg.clone();
-                    self.add_message(MessageRole::Error, error_msg, None);
-                    self.status = TaskStatus::Error;
+                // Add response
+                let provider_name = self.team.get_members()
+                    .first()
+                    .map(|m| m.name.clone());
+                self.add_message(MessageRole::Assistant, response, provider_name);
 
-                    // Workers show error state
-                    for worker in &mut self.office.workers {
-                        worker.state = WorkerState::Confused;
-                    }
-                }
+                self.status = AppStatus::Complete;
+                self.tokens_used += 100; // Estimate
             }
-        } else {
-            let error_msg = "No LLM provider available. Install claude, codex, gemini CLI, or start ollama.".to_string();
-            self.add_message(MessageRole::Error, error_msg, None);
-            self.status = TaskStatus::Error;
+            Err(e) => {
+                // Remove thinking message
+                self.messages.retain(|m| m.role != MessageRole::Thinking);
+
+                self.add_message(MessageRole::Error, format!("{}", e), None);
+                self.status = AppStatus::Error;
+            }
         }
 
         Ok(())
     }
 
-    /// Add a message from a worker (legacy)
-    pub fn add_worker_message(&mut self, worker_id: usize, message: &str) {
-        self.worker_messages.push(WorkerMessage {
-            worker_id,
-            message: message.to_string(),
-            timestamp: self.tick,
-        });
+    /// Update todos from task list
+    fn update_todos_from_tasks(&mut self, tasks: &[Task]) {
+        for task in tasks {
+            // Find or create todo
+            let existing = self.todos.iter_mut()
+                .find(|t| t.content == task.title);
 
-        // Keep only recent messages
-        if self.worker_messages.len() > 10 {
-            self.worker_messages.remove(0);
+            if let Some(todo) = existing {
+                todo.status = match task.status {
+                    TaskProgress::Pending => TodoStatus::Pending,
+                    TaskProgress::InProgress => TodoStatus::InProgress,
+                    TaskProgress::Completed => TodoStatus::Completed,
+                    TaskProgress::Failed => TodoStatus::Pending, // Keep visible
+                };
+            } else {
+                self.todos.push(TodoItem {
+                    content: task.title.clone(),
+                    status: match task.status {
+                        TaskProgress::Pending => TodoStatus::Pending,
+                        TaskProgress::InProgress => TodoStatus::InProgress,
+                        TaskProgress::Completed => TodoStatus::Completed,
+                        TaskProgress::Failed => TodoStatus::Pending,
+                    },
+                    active_form: task.task_type.display_name().to_string(),
+                });
+            }
         }
-    }
-
-    /// Update animation tick
-    pub fn tick(&mut self) {
-        self.tick = self.tick.wrapping_add(1);
-        self.office.tick(self.tick);
-
-        // Clear old worker messages
-        self.worker_messages
-            .retain(|m| self.tick.saturating_sub(m.timestamp) < 100);
-    }
-
-    /// Navigate to next focus area
-    pub fn next_focus(&mut self) {
-        self.focus = match self.focus {
-            Focus::Input => Focus::Output,
-            Focus::Output => Focus::Workers,
-            Focus::Workers => Focus::Input,
-        };
-    }
-
-    /// Navigate to previous focus area
-    pub fn prev_focus(&mut self) {
-        self.focus = match self.focus {
-            Focus::Input => Focus::Workers,
-            Focus::Output => Focus::Input,
-            Focus::Workers => Focus::Output,
-        };
     }
 
     /// Input character at cursor
@@ -280,27 +259,84 @@ impl App {
 
     /// Move cursor left
     pub fn move_cursor_left(&mut self) {
-        if self.focus == Focus::Input && self.cursor > 0 {
+        if self.cursor > 0 {
             self.cursor -= 1;
         }
     }
 
     /// Move cursor right
     pub fn move_cursor_right(&mut self) {
-        if self.focus == Focus::Input && self.cursor < self.input.len() {
+        if self.cursor < self.input.len() {
             self.cursor += 1;
         }
     }
 
-    /// Scroll output up
+    /// Scroll up
     pub fn scroll_up(&mut self) {
         if self.output_scroll > 0 {
             self.output_scroll -= 1;
         }
     }
 
-    /// Scroll output down
+    /// Scroll down
     pub fn scroll_down(&mut self) {
         self.output_scroll += 1;
     }
+
+    /// Get status line text
+    pub fn status_line(&self) -> String {
+        let provider = self.team.get_members()
+            .iter()
+            .find(|m| m.available)
+            .map(|m| m.provider_type.as_str())
+            .unwrap_or("none");
+
+        let dir = self.cwd.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(".");
+
+        format!(
+            "{} | {} | {} turn{} | Press Enter to send, Esc to quit",
+            dir,
+            provider,
+            self.turns,
+            if self.turns == 1 { "" } else { "s" }
+        )
+    }
+
+    /// Get active todo count
+    pub fn active_todo_count(&self) -> usize {
+        self.todos.iter().filter(|t| t.status != TodoStatus::Completed).count()
+    }
+
+    // Legacy methods for compatibility
+    pub fn tick(&mut self) {}
+    pub fn next_focus(&mut self) {
+        self.focus = match self.focus {
+            Focus::Input => Focus::Output,
+            Focus::Output => Focus::Input,
+        };
+    }
+    pub fn prev_focus(&mut self) {
+        self.next_focus();
+    }
+}
+
+// Re-export types for UI compatibility
+pub use crate::team::{Task, TaskProgress};
+
+// Legacy exports
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskStatus {
+    Idle,
+    Working,
+    Deliberating,
+    Complete,
+    Error,
+}
+
+pub struct WorkerMessage {
+    pub worker_id: usize,
+    pub message: String,
+    pub timestamp: u64,
 }

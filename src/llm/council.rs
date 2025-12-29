@@ -27,11 +27,7 @@ impl Council {
                         match create_provider(member, provider_config.clone(), api_key) {
                             Ok(provider) => providers.push(provider),
                             Err(e) => {
-                                tracing::warn!(
-                                    "Failed to create provider {}: {}",
-                                    member,
-                                    e
-                                );
+                                eprintln!("Warning: Failed to create provider {}: {}", member, e);
                             }
                         }
                     }
@@ -87,7 +83,7 @@ impl Council {
         let mut context = String::new();
 
         for round in 0..self.rounds {
-            tracing::info!("Deliberation round {}/{}", round + 1, self.rounds);
+            // Deliberation round {round+1}/{rounds}
 
             let prompt = if round == 0 {
                 format!(
@@ -116,11 +112,7 @@ impl Council {
                             .push(response);
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "Provider {} failed: {}",
-                            provider.name(),
-                            e
-                        );
+                        eprintln!("Warning: Provider {} failed: {}", provider.name(), e);
                     }
                 }
             }

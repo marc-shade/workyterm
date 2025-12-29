@@ -4,26 +4,37 @@ use std::process::Command;
 
 #[test]
 fn test_help_command() {
-    let output = Command::new("cargo")
-        .args(["run", "--", "--help"])
+    // Use the release binary directly to avoid cargo warnings
+    let output = Command::new("./target/release/workyterm")
+        .arg("--help")
         .output()
-        .expect("Failed to execute command");
+        .expect("Failed to execute command - run 'cargo build --release' first");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("A friendly CLI for non-programmers"));
-    assert!(stdout.contains("--task"));
-    assert!(stdout.contains("--output"));
-    assert!(stdout.contains("--config"));
+
+    // Check for Claude Code-style CLI help
+    assert!(
+        stdout.contains("AI coding assistant"),
+        "Expected 'AI coding assistant' in help text, got: {}", stdout
+    );
+    assert!(
+        stdout.contains("--print"),
+        "Expected '--print' in help text, got: {}", stdout
+    );
 }
 
 #[test]
 fn test_version_command() {
-    let output = Command::new("cargo")
-        .args(["run", "--", "--version"])
+    // Use the release binary directly
+    let output = Command::new("./target/release/workyterm")
+        .arg("--version")
         .output()
-        .expect("Failed to execute command");
+        .expect("Failed to execute command - run 'cargo build --release' first");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("workyterm"));
-    assert!(stdout.contains("0.1.0"));
+
+    assert!(
+        stdout.contains("workyterm") && stdout.contains("0.2"),
+        "Expected 'workyterm 0.2.x' in version, got: {}", stdout
+    );
 }

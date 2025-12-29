@@ -4,15 +4,35 @@ use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::config::ProviderConfig;
+
+/// Callback type for streaming responses
+pub type StreamCallback = Box<dyn Fn(&str) + Send + Sync>;
 
 /// Generic LLM provider trait
 #[async_trait::async_trait]
 pub trait LlmProvider: Send + Sync {
     async fn generate(&self, prompt: &str) -> Result<String>;
+
+    /// Generate with streaming output - calls callback for each chunk
+    async fn generate_streaming(
+        &self,
+        prompt: &str,
+        callback: StreamCallback,
+    ) -> Result<String> {
+        // Default: fall back to non-streaming
+        let response = self.generate(prompt).await?;
+        callback(&response);
+        Ok(response)
+    }
+
     fn name(&self) -> &str;
     fn is_available(&self) -> bool;
+    fn supports_streaming(&self) -> bool {
+        false
+    }
 }
 
 // ============================================================================
@@ -49,8 +69,9 @@ impl Default for ClaudeCliProvider {
 #[async_trait::async_trait]
 impl LlmProvider for ClaudeCliProvider {
     async fn generate(&self, prompt: &str) -> Result<String> {
+        // claude -p "prompt" - the prompt is positional, -p means print mode
         let output = tokio::process::Command::new(&self.command)
-            .args(["--print", prompt])
+            .args(["-p", "--output-format", "text", prompt])
             .output()
             .await?;
 
@@ -62,12 +83,48 @@ impl LlmProvider for ClaudeCliProvider {
         }
     }
 
+    async fn generate_streaming(
+        &self,
+        prompt: &str,
+        callback: StreamCallback,
+    ) -> Result<String> {
+        let mut child = tokio::process::Command::new(&self.command)
+            .args(["-p", "--output-format", "text", prompt])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+
+        let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to capture stdout"))?;
+        let mut reader = BufReader::new(stdout).lines();
+        let mut full_response = String::new();
+
+        while let Some(line) = reader.next_line().await? {
+            callback(&line);
+            callback("\n");
+            if !full_response.is_empty() {
+                full_response.push('\n');
+            }
+            full_response.push_str(&line);
+        }
+
+        let status = child.wait().await?;
+        if !status.success() {
+            return Err(anyhow::anyhow!("Claude CLI exited with error"));
+        }
+
+        Ok(full_response)
+    }
+
     fn name(&self) -> &str {
         "Claude"
     }
 
     fn is_available(&self) -> bool {
         Self::is_installed()
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 }
 
@@ -101,8 +158,9 @@ impl Default for CodexCliProvider {
 #[async_trait::async_trait]
 impl LlmProvider for CodexCliProvider {
     async fn generate(&self, prompt: &str) -> Result<String> {
+        // codex exec "prompt" for non-interactive mode
         let output = tokio::process::Command::new(&self.command)
-            .args(["--print", prompt])
+            .args(["exec", prompt])
             .output()
             .await?;
 
@@ -114,12 +172,48 @@ impl LlmProvider for CodexCliProvider {
         }
     }
 
+    async fn generate_streaming(
+        &self,
+        prompt: &str,
+        callback: StreamCallback,
+    ) -> Result<String> {
+        let mut child = tokio::process::Command::new(&self.command)
+            .args(["exec", prompt])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+
+        let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to capture stdout"))?;
+        let mut reader = BufReader::new(stdout).lines();
+        let mut full_response = String::new();
+
+        while let Some(line) = reader.next_line().await? {
+            callback(&line);
+            callback("\n");
+            if !full_response.is_empty() {
+                full_response.push('\n');
+            }
+            full_response.push_str(&line);
+        }
+
+        let status = child.wait().await?;
+        if !status.success() {
+            return Err(anyhow::anyhow!("Codex CLI exited with error"));
+        }
+
+        Ok(full_response)
+    }
+
     fn name(&self) -> &str {
         "Codex"
     }
 
     fn is_available(&self) -> bool {
         Self::is_installed()
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 }
 
@@ -153,8 +247,9 @@ impl Default for GeminiCliProvider {
 #[async_trait::async_trait]
 impl LlmProvider for GeminiCliProvider {
     async fn generate(&self, prompt: &str) -> Result<String> {
+        // gemini "prompt" - uses positional prompt in non-interactive mode
         let output = tokio::process::Command::new(&self.command)
-            .args(["--print", prompt])
+            .arg(prompt)
             .output()
             .await?;
 
@@ -166,12 +261,48 @@ impl LlmProvider for GeminiCliProvider {
         }
     }
 
+    async fn generate_streaming(
+        &self,
+        prompt: &str,
+        callback: StreamCallback,
+    ) -> Result<String> {
+        let mut child = tokio::process::Command::new(&self.command)
+            .arg(prompt)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+
+        let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Failed to capture stdout"))?;
+        let mut reader = BufReader::new(stdout).lines();
+        let mut full_response = String::new();
+
+        while let Some(line) = reader.next_line().await? {
+            callback(&line);
+            callback("\n");
+            if !full_response.is_empty() {
+                full_response.push('\n');
+            }
+            full_response.push_str(&line);
+        }
+
+        let status = child.wait().await?;
+        if !status.success() {
+            return Err(anyhow::anyhow!("Gemini CLI exited with error"));
+        }
+
+        Ok(full_response)
+    }
+
     fn name(&self) -> &str {
         "Gemini"
     }
 
     fn is_available(&self) -> bool {
         Self::is_installed()
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 }
 
@@ -413,7 +544,7 @@ impl LlmProvider for AnthropicProvider {
 // PROVIDER DETECTION AND FACTORY
 // ============================================================================
 
-/// Detect all available providers (CLI first, then API)
+/// Detect all available providers (CLI first, then API) - sequential version
 pub fn detect_available_providers() -> Vec<String> {
     let mut available = Vec::new();
 
@@ -431,6 +562,86 @@ pub fn detect_available_providers() -> Vec<String> {
     // Local API
     if OllamaProvider::is_running() {
         available.push("ollama".to_string());
+    }
+
+    available
+}
+
+/// Detect all available providers in parallel for faster startup
+pub async fn detect_available_providers_async() -> Vec<String> {
+    use tokio::task::JoinSet;
+
+    let mut set = JoinSet::new();
+
+    // Check CLI providers in parallel
+    set.spawn(async {
+        if tokio::process::Command::new("which")
+            .arg("claude")
+            .output()
+            .await
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            Some("claude-cli".to_string())
+        } else {
+            None
+        }
+    });
+
+    set.spawn(async {
+        if tokio::process::Command::new("which")
+            .arg("codex")
+            .output()
+            .await
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            Some("codex-cli".to_string())
+        } else {
+            None
+        }
+    });
+
+    set.spawn(async {
+        if tokio::process::Command::new("which")
+            .arg("gemini")
+            .output()
+            .await
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            Some("gemini-cli".to_string())
+        } else {
+            None
+        }
+    });
+
+    set.spawn(async {
+        // Check Ollama with a short timeout
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(500))
+            .build()
+            .ok();
+
+        if let Some(client) = client {
+            if client.get("http://localhost:11434/api/tags")
+                .send()
+                .await
+                .map(|r| r.status().is_success())
+                .unwrap_or(false)
+            {
+                return Some("ollama".to_string());
+            }
+        }
+        None
+    });
+
+    // Collect results
+    let mut available = Vec::new();
+    while let Some(result) = set.join_next().await {
+        if let Ok(Some(provider)) = result {
+            available.push(provider);
+        }
     }
 
     available

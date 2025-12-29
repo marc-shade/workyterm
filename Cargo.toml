@@ -1,24 +1,20 @@
 [package]
 name = "workyterm"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "A friendly CLI for non-programmers with animated pixel art AI workers"
+description = "Claude Code style CLI assistant with dynamic AI support team"
 authors = ["Marc Shade <marc@2acrestudios.com>"]
 license = "MIT"
 repository = "https://github.com/marc-shade/workyterm"
-keywords = ["cli", "tui", "ai", "llm", "ratatui"]
+keywords = ["cli", "ai", "llm", "assistant", "support"]
 categories = ["command-line-interface", "text-processing"]
 
 [dependencies]
-# TUI Framework
-ratatui = "0.29"
-crossterm = "0.28"
-
 # Async Runtime
-tokio = { version = "1.42", features = ["full"] }
+tokio = { version = "1.42", features = ["full", "process"] }
 
 # HTTP Client for LLM APIs
-reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest = { version = "0.12", features = ["json"] }
 
 # JSON/Config handling
 serde = { version = "1.0", features = ["derive"] }
@@ -32,30 +28,17 @@ clap = { version = "4.5", features = ["derive"] }
 anyhow = "1.0"
 thiserror = "2.0"
 
-# Logging
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
 # File system and directories
 dirs = "5.0"
-
-# Unicode and text handling
-unicode-width = "0.2"
-
-# Random for animations
-rand = "0.8"
-
-# Time handling
-chrono = "0.4"
-
-# Clipboard support
-arboard = "3.4"
 
 # Async traits
 async-trait = "0.1"
 
-# TTY detection
-atty = "0.2"
+# Terminal colors (Claude Code style)
+colored = "2.1"
+
+# Regex for file reference parsing
+regex = "1.11"
 
 [dev-dependencies]
 pretty_assertions = "1.4"

@@ -1,226 +1,212 @@
 # WorkyTerm
 
-A friendly terminal application for non-programmers featuring animated pixel art AI workers in a virtual office.
+A Claude Code-style CLI assistant that uses installed AI CLI tools (claude, codex, gemini) or Ollama - no API keys required.
 
 ```
-  ╭─────────────────────────────────────────────────╮
-  │              Welcome to WorkyTerm!               │
-  │                                                   │
-  │     ╭───────╮        Let me think about this...  │
-  │     │ ≡ ≡ ≡ │        ○                           │
-  │     └───┬───┘       o                            │
-  │         │                                         │
-  │       O     O!    O>>    \O/                     │
-  │      /|\   /|\   /|\      |                      │
-  │      / \   / \   / \     / \                     │
-  │     Pixel  Byte  Nova   Chip                     │
-  │    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━           │
-  ╰─────────────────────────────────────────────────╯
+WorkyTerm 0.2.0
+✓ 3 providers ready via gemini, codex, claude
+
+Type your message, or /help for commands.
+
+> Write a blog post about Rust programming
+● Writing → Iris
+
+Rust is a systems programming language that emphasizes safety,
+performance, and concurrency...
+
+(2.3s)
 ```
 
 ## What is WorkyTerm?
 
-WorkyTerm brings the power of multiple AI models to your terminal in a fun, accessible way. Watch your AI workers collaborate in a virtual office as they generate content, research topics, and solve problems.
+WorkyTerm provides multi-model AI access through a single CLI. It automatically detects and routes requests to available providers, making it ideal for:
 
-**Built for:**
-- Marketers creating content and campaigns
-- Researchers gathering and synthesizing information
-- Planners organizing projects and ideas
-- Learners exploring new topics
-- Anyone who wants AI assistance without the complexity
+- **Programmatic use** - JSON output mode for automation
+- **Multi-model routing** - Different models for different tasks
+- **Cost optimization** - Use fast/cheap models when appropriate
+- **Privacy options** - Ollama for local-only processing
 
 ## Features
 
-### Animated AI Office
-Watch pixel art characters work on your tasks in real-time. Each worker has personality and specialization:
-- **Pixel** - The Writer, crafts compelling content
-- **Byte** - The Researcher, finds and verifies information
-- **Nova** - The Analyst, breaks down complex problems
-- **Chip** - The Creative, brings fresh ideas
-- **Luna** - The Editor, polishes and refines output
+### Multi-Provider Support
+- **Gemini CLI** - Fast, web-grounded responses
+- **Codex CLI** - Code execution capabilities
+- **Claude CLI** - Advanced reasoning
+- **Ollama** - Local/private processing
 
-### LLM Council Deliberation
-Multiple AI models can collaborate on your tasks:
-- Get diverse perspectives from different AI providers
-- Multi-round deliberation for better results
-- Automatic synthesis of the best ideas
-- Works with Ollama (local), OpenAI, Anthropic, and more
+### Claude Code-Style Interface
+- Slash commands (`/help`, `/status`, `/team`, `/doctor`)
+- File references with `@file.txt`
+- Shell commands with `!command`
+- Streaming responses
+- Markdown rendering
 
-### Beginner Friendly
-- No coding required - just type what you need
-- Visual progress with entertaining animations
-- Clear, simple interface
-- Helpful status messages
-- Auto-saves your work
+### Programmatic Mode
+```bash
+# JSON output for parsing
+workyterm -j -m gemini "What is Rust?"
+{"success":true,"response":"...","model":"gemini-cli","elapsed_ms":7089,"cached":false}
 
-### Power User Ready
-- Keyboard shortcuts for efficiency
-- Configurable providers and models
-- Council mode for multi-AI deliberation
-- CLI arguments for automation
-- TOML configuration file
+# Quiet mode - just the response
+workyterm -q -m codex "Explain this code"
+
+# Task-based routing
+workyterm -j -t research "Latest AI news"
+```
+
+### Response Caching
+```bash
+# First call hits API (~7s)
+workyterm -j -m gemini "What is 2+2?"
+
+# Second call from cache (~0ms)
+workyterm -j -m gemini "What is 2+2?"
+
+# Bypass cache
+workyterm --no-cache -m gemini "What is 2+2?"
+
+# Clear all cached responses
+workyterm --clear-cache
+```
 
 ## Installation
 
 ### From Source
 
 ```bash
-# Clone the repository
 git clone https://github.com/marc-shade/workyterm.git
 cd workyterm
-
-# Build release version
 cargo build --release
-
-# Run
 ./target/release/workyterm
 ```
 
 ### Requirements
 
-- Rust 1.70+
-- An LLM provider:
-  - [Ollama](https://ollama.ai) (recommended for local use)
-  - OpenAI API key
-  - Anthropic API key
-
-## Quick Start
-
-1. **Install Ollama** (optional but recommended):
-   ```bash
-   # macOS
-   brew install ollama
-   ollama serve
-   ollama pull llama3.2
-   ```
-
-2. **Run WorkyTerm**:
-   ```bash
-   workyterm
-   ```
-
-3. **Type your task** and press Enter:
-   ```
-   Write a blog post about sustainable gardening for beginners
-   ```
-
-4. **Watch your AI workers** collaborate in the virtual office!
+At least one of:
+- [Claude CLI](https://github.com/anthropics/claude-cli) - `claude`
+- [Codex CLI](https://github.com/openai/codex-cli) - `codex`
+- [Gemini CLI](https://github.com/google/gemini-cli) - `gemini`
+- [Ollama](https://ollama.ai) running locally
 
 ## Usage
 
 ### Interactive Mode
 
-Just run `workyterm` and start typing:
-
 ```bash
 workyterm
 ```
 
-### With a Task
+### One-Shot Queries
 
 ```bash
-workyterm --task "Create a marketing email for our new product launch"
+# Print mode - process and exit
+workyterm -p "Explain quantum computing"
+
+# JSON mode - for programmatic use
+workyterm -j "What is machine learning?"
+
+# Quiet mode - minimal output
+workyterm -q "Hello world"
 ```
 
-### Save Output
+### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `-p, --print` | Print mode (process and exit) |
+| `-j, --json` | JSON output for parsing |
+| `-q, --quiet` | Minimal output |
+| `-m, --model` | Force model: gemini, codex, claude, ollama |
+| `-t, --task` | Hint task type: research, code, write, analyze |
+| `--no-cache` | Bypass response cache |
+| `--cache-ttl` | Cache TTL in seconds (default: 3600) |
+| `--clear-cache` | Clear cache and exit |
+| `-v, --verbose` | Enable debug logging |
+
+### Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show help |
+| `/status` | Session status |
+| `/team` | Show team members |
+| `/model` | Available models |
+| `/doctor` | Diagnostic checks |
+| `/cost` | Token usage |
+| `/context` | Context usage |
+| `/clear` | Clear history |
+| `/exit` | Exit |
+
+### Special Syntax
 
 ```bash
-workyterm --task "Research the history of jazz" --output jazz-history.md
+# Include file contents
+> Explain @src/main.rs
+
+# Run shell command
+> !ls -la
 ```
 
-### Keyboard Shortcuts
+## Task Routing
 
-| Key | Action |
-|-----|--------|
-| `Enter` | Submit task |
-| `Tab` | Switch focus |
-| `↑/↓` | Scroll output |
-| `q` / `Esc` | Quit |
+WorkyTerm automatically routes requests to appropriate providers:
+
+| Task Type | Keywords | Default Provider |
+|-----------|----------|------------------|
+| Research | research, find, search, what is | Gemini (fast) |
+| Analysis | analyze, debug, code, review | Codex |
+| Writing | write, draft, compose, blog | Gemini |
+| Creative | brainstorm, ideas, design | Claude |
+| Editing | edit, improve, fix, rewrite | Claude |
+
+Override with `-m` flag:
+```bash
+workyterm -m claude "Research quantum physics"
+```
 
 ## Configuration
 
-WorkyTerm uses a TOML configuration file at `~/.config/workyterm/config.toml`:
+Config file: `~/.config/workyterm/config.toml`
 
 ```toml
 [providers.ollama]
 endpoint = "http://localhost:11434"
 model = "llama3.2"
 enabled = true
-
-[providers.openai]
-endpoint = "https://api.openai.com/v1"
-api_key = "$OPENAI_API_KEY"  # Uses environment variable
-model = "gpt-4o-mini"
-enabled = false
-
-[providers.anthropic]
-endpoint = "https://api.anthropic.com/v1"
-api_key = "$ANTHROPIC_API_KEY"
-model = "claude-3-5-sonnet-20241022"
-enabled = false
-
-default_provider = "ollama"
-
-[council]
-enabled = false  # Enable multi-AI deliberation
-members = ["ollama", "openai"]
-rounds = 2
-consensus_threshold = 0.7
-
-[ui]
-animation_fps = 10
-show_thoughts = true
-worker_names = ["Pixel", "Byte", "Nova", "Chip", "Luna"]
-
-[output]
-directory = "~/Documents/WorkyTerm"
-auto_save = true
-format = "markdown"
 ```
 
 ## Architecture
 
-WorkyTerm is built with:
-- **[Ratatui](https://ratatui.rs)** - Terminal UI framework
-- **[Tokio](https://tokio.rs)** - Async runtime
-- **[Reqwest](https://docs.rs/reqwest)** - HTTP client for API calls
-- **[Clap](https://docs.rs/clap)** - CLI argument parsing
-
-### Project Structure
-
 ```
 src/
-├── main.rs           # Entry point and event loop
-├── app.rs            # Application state management
-├── config.rs         # Configuration handling
-├── error.rs          # Error types
-├── ui/
-│   ├── mod.rs        # Main UI layout
-│   ├── office.rs     # Virtual office rendering
-│   └── widgets.rs    # Custom widgets
-├── workers/
-│   ├── mod.rs        # Worker management
-│   ├── sprites.rs    # Pixel art definitions
-│   └── animations.rs # Animation system
+├── main.rs           # CLI entry point
+├── config.rs         # Configuration
+├── cache.rs          # Response caching
+├── team/
+│   ├── mod.rs        # Support team orchestration
+│   ├── analyzer.rs   # Request analysis
+│   ├── members.rs    # Team member definitions
+│   └── workflow.rs   # Task workflow
 └── llm/
     ├── mod.rs        # LLM module
-    ├── provider.rs   # Provider implementations
-    └── council.rs    # Multi-LLM deliberation
+    ├── provider.rs   # CLI providers (claude, codex, gemini, ollama)
+    └── council.rs    # Multi-model deliberation
 ```
 
-## Roadmap
+## Use with Claude Code
 
-- [ ] Image generation support
-- [ ] Voice input/output
-- [ ] More worker personalities
-- [ ] Custom sprite editor
-- [ ] Plugin system
-- [ ] Workflow templates
-- [ ] Team collaboration mode
+WorkyTerm is designed to extend Claude Code's capabilities:
 
-## Contributing
+```bash
+# In Claude Code, spawn WorkyTerm for Gemini research
+result=$(workyterm -j -m gemini "Latest Rust 2024 features")
 
-Contributions welcome! Please read our contributing guidelines first.
+# Use Codex for code execution
+workyterm -q -m codex "Run pytest and summarize results"
+
+# Local processing with Ollama
+workyterm -q -m ollama "Summarize this confidential doc"
+```
 
 ## License
 
@@ -229,9 +215,3 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## Credits
 
 Created by [Marc Shade](https://github.com/marc-shade) at 2 Acre Studios.
-
-Inspired by the [LLM Council](https://github.com/marc-shade/llm-council) project and built with the excellent [Ratatui](https://github.com/ratatui/ratatui) framework.
-
----
-
-*WorkyTerm: Making AI accessible, one pixel worker at a time.*
